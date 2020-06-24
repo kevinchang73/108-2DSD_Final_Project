@@ -204,7 +204,7 @@ module RISCV_Pipeline(
 
 	//-----cache D combinational--------//
 	always@(*) begin
-		DCACHE_addr=alu_result_Mem[30:1];//since prcessor has to achieve one word(4 byte) from cache each time.
+		DCACHE_addr={alu_result_Mem[30:2],1'b0};//since prcessor has to achieve one word(4 byte) from cache each time.
 		DCACHE_wdata={rs2_Mem[7:0],rs2_Mem[15:8],rs2_Mem[23:16],rs2_Mem[31:24]};
 		DCACHE_ren=MemRead[Mem];
 		DCACHE_wen=MemWrite[Mem];
@@ -773,30 +773,82 @@ module cache(
     reg [1:0] target;//which block is reading/writing
     reg  tag_region[0:3];//which tag (left/right) is using in each block
     reg [1:0] word_region;//which word(1~4) in the target block is reading/writing 
+	reg [1:0] nxt_word; // = word_region + 1
     reg current_tag;//=tag_region[target] i.e. to simplify the code
+	reg nxt_tag; //next block's tag (for cross boundary instruction)
+	reg [26:0] nxt_addr; //next block's address
     //reg desire_tag; //signal for the tag_region to know which tag is the older one 
 
 //==== combinational circuit ==============================
 integer i;
 always@(*) begin
-    word_region=proc_addr[2:1];
-    target=proc_addr[4:3];
-    if (cache_tag[target][0][3:0]==proc_addr[8:5]) begin //hit left//compare only 4 bit for convenient
-        miss=2'b00;
-        proc_stall=1'b0;
-        current_tag=0;
-        //desire_tag=0;
+    word_region = proc_addr[2:1];
+    target 		= proc_addr[4:3];
+	nxt_word	= proc_addr[2:1] + 1;
+	nxt_addr 	= proc_addr[29:3] + 1;
+	nxt_tag		= 0;
+    if (cache_tag[target][0][3:0] == proc_addr[8:5]) begin //hit left//compare only 4 bit for convenient
+		if (proc_addr[2:0] == 3'b111) begin
+			if (cache_tag[nxt_addr[1:0]][0][3:0] == nxt_addr[5:2]) begin
+				miss = 2'b00;
+				proc_stall = 1'b0;
+				current_tag = 0;
+				nxt_tag = 0;
+			end
+			else if (cache_tag[nxt_addr[1:0]][1][3:0] == nxt_addr[5:2]) begin
+				miss = 2'b00;
+				proc_stall = 1'b0;
+				current_tag = 0;
+				nxt_tag = 1;
+			end
+			else begin
+				miss = 2'b11;
+				proc_stall = 1'b1;
+				current_tag = 0;
+				nxt_tag = tag_region[nxt_addr[1:0]];
+			end
+		end
+		else begin
+			miss = 2'b00;
+			proc_stall = 1'b0;
+			current_tag = 0;
+			nxt_tag = tag_region[nxt_addr[1:0]];
+			//desire_tag=0;
+		end
     end
-    else if (cache_tag[target][1][3:0]==proc_addr[8:5]) begin //hit right ////compare only 4 bit for convenient
-        miss=2'b00;
-        proc_stall=1'b0;
-        current_tag=1;
-        //desire_tag=1;
+    else if (cache_tag[target][1][3:0] == proc_addr[8:5]) begin //hit right ////compare only 4 bit for convenient
+		if (proc_addr[2:0] == 3'b111) begin
+			if (cache_tag[nxt_addr[1:0]][0][3:0] == nxt_addr[5:2]) begin
+				miss = 2'b00;
+				proc_stall = 1'b0;
+				current_tag = 1;
+				nxt_tag = 0;
+			end
+			else if (cache_tag[nxt_addr[1:0]][1][3:0] == nxt_addr[5:2]) begin
+				miss = 2'b00;
+				proc_stall = 1'b0;
+				current_tag = 1;
+				nxt_tag = 1;
+			end
+			else begin
+				miss = 2'b11;
+				proc_stall = 1'b1;
+				current_tag = 1;
+				nxt_tag = tag_region[nxt_addr[1:0]];
+			end
+		end
+		else begin
+			miss=2'b00;
+			proc_stall=1'b0;
+			current_tag=1;
+			nxt_tag = tag_region[nxt_addr[1:0]];
+			//desire_tag=1;
+		end
     end
     else if (cache_tag[target][0][25:24]==2'b11) begin //left tag is still in reset state //initail miss
         miss=2'b10;
         if((proc_read||proc_write)) begin
-            proc_stall=1'b1;
+            proc_stall = 1'b1;
         end
         else begin
             proc_stall=1'b0;
@@ -823,42 +875,56 @@ always@(*) begin
         else begin
             proc_stall=1'b0;
         end
-        current_tag=tag_region[target];
+        current_tag = tag_region[target];
+		nxt_tag = tag_region[nxt_addr[1:0]];
         //desire_tag=1;//no use
     end
+
     case(state)
         state_ready: begin
-            proc_rdata=(proc_read)? cache_data[target][current_tag][word_region]:32'hffffffff;
-            mem_addr=28'd0;
-            mem_wdata=128'd0;
-            mem_write=0;
-            mem_read=0;
+            proc_rdata	= (proc_read)? 
+						  (proc_addr[0] == 1'b1) ? 
+						  (proc_addr[2:0] == 3'b111)? {cache_data[target][current_tag][word_region][15:0], cache_data[nxt_addr[1:0]][nxt_tag][0][31:16]} :
+						  							  {cache_data[target][current_tag][word_region][15:0], cache_data[target][current_tag][nxt_word][31:16]} :
+													  cache_data[target][current_tag][word_region] :
+													  32'hffffffff;
+            mem_addr	= 28'd0;
+            mem_wdata	= 128'd0;
+            mem_write	= 0;
+            mem_read	= 0;
         end
         state_update: begin
-            proc_rdata=32'hffffffff;
-            mem_addr={cache_tag[target][current_tag],target};
-            mem_wdata={cache_data[target][current_tag][3],cache_data[target][current_tag][2],cache_data[target][current_tag][1],cache_data[target][current_tag][0]};
-            mem_write=1;
-            mem_read=0;
+            proc_rdata	= 32'hffffffff;
+            mem_addr	= {cache_tag[target][current_tag],target};
+            mem_wdata	= {cache_data[target][current_tag][3],cache_data[target][current_tag][2],cache_data[target][current_tag][1],cache_data[target][current_tag][0]};
+            mem_write	= 1;
+            mem_read	= 0;
         end
         state_read: begin
-            proc_rdata=32'hffffffff;
-            mem_addr={1'b0, proc_addr[29:3]};
-            mem_wdata=128'd0;
-            mem_write=0;
-            mem_read=1;
+            proc_rdata	= 32'hffffffff;
+            mem_addr	= {1'b0, proc_addr[29:3]};
+            mem_wdata	= 128'd0;
+            mem_write	= 0;
+            mem_read	= 1;
         end
+		state_read_2: begin
+			proc_rdata 	= 32'hffffffff;
+			mem_addr   	= {1'b0, nxt_addr};
+			mem_wdata	= 128'd0;
+			mem_write	= 0;
+			mem_read	= 1;
+		end
         default: begin
-            proc_rdata=32'hffffffff;
-            mem_addr=28'd0;
-            mem_wdata=128'd0;
-            mem_write=0;
-            mem_read=0;
+            proc_rdata	= 32'hffffffff;
+            mem_addr	= 28'd0;
+            mem_wdata	= 128'd0;
+            mem_write	= 0;
+            mem_read	= 0;
         end
     endcase
 end
+
 //==== sequential circuit =================================
-    
 always@( posedge clk ) begin
     if( proc_reset ) begin
         state<=state_ready;
@@ -871,52 +937,80 @@ always@( posedge clk ) begin
     else begin
         case(state)
             state_ready: begin
-                if((miss==2'b10)&&(proc_read||proc_write)) begin //initail miss
-                    tag_region[target]<=current_tag;
-                    state<=state_read;
+                if (miss == 2'b10 && (proc_read||proc_write)) begin //initail miss
+                    tag_region[target] <= current_tag;
+                    state <= state_read;
                 end
-                else if ((miss==2'b01)&&(proc_read||proc_write)) begin //regular miss
-                    tag_region[target]<=~tag_region[target];
-                    state<=state_update;
+                else if (miss == 2'b01 && (proc_read||proc_write)) begin //regular miss
+                    tag_region[target] <= ~tag_region[target];
+                    state <= state_update;
                 end
+				else if (miss == 2'b11 && (proc_read||proc_write)) begin //current hit but next addr. miss (for cross boundary instructions)
+					tag_region[target] <= current_tag;
+					state <= state_read_2;
+				end
                 else begin
-                    tag_region[target]<=current_tag;
-                    state<=state_ready;
-                    if(proc_write==1) begin
-                        cache_data[target][current_tag][word_region]<=proc_wdata;
+                    tag_region[target] <= current_tag;
+                    state <= state_ready;
+                    if(proc_write == 1) begin
+                        cache_data[target][current_tag][word_region] <= proc_wdata;
                     end
                     else begin
-                        cache_data[target][current_tag][word_region]<=cache_data[target][current_tag][word_region];
-                    end 
+                        cache_data[target][current_tag][word_region] <= cache_data[target][current_tag][word_region];
+                    end
                 end
             end
             state_update: begin
-                tag_region[target]<=tag_region[target];
-                if(mem_ready==0) begin
-                    state<=state_update;
+                tag_region[target] <= tag_region[target];
+                if(mem_ready == 0) begin
+                    state <= state_update;
                 end
                 else begin
-                    state<=state_read;
+                    state <= state_read;
                 end
             end
             state_read: begin
-                if(mem_ready==0) begin
-                    state<=state_read;
-                    tag_region[target]<=tag_region[target];
+                if(mem_ready == 0) begin
+                    state <= state_read;
+                    tag_region[target] <= tag_region[target];
                 end
                 else begin
-                    state<=state_ready;
-                    tag_region[target]<=tag_region[target];
-                    cache_data[target][current_tag][3]<=mem_rdata[127:96];
-                    cache_data[target][current_tag][2]<=mem_rdata[95:64];
-                    cache_data[target][current_tag][1]<=mem_rdata[63:32];
-                    cache_data[target][current_tag][0]<=mem_rdata[31:0];
-                    cache_tag[target][current_tag]<={1'b0, proc_addr[29:5]};
+					if((proc_addr[2:0] == 3'b111) && (cache_tag[nxt_addr[1:0]][0][3:0] != nxt_addr[5:2]) && (cache_tag[nxt_addr[1:0]][1][3:0] != nxt_addr[5:2])) begin
+						state <= state_read_2;
+						tag_region[target] <= tag_region[target];
+						cache_data[target][current_tag][3] <= cache_data[target][current_tag][3];
+						cache_data[target][current_tag][2] <= cache_data[target][current_tag][2];
+						cache_data[target][current_tag][1] <= cache_data[target][current_tag][1];
+						cache_data[target][current_tag][0] <= cache_data[target][current_tag][0];
+						cache_tag [target][current_tag]	   <= cache_tag [target][current_tag];
+					end
+					else begin
+						state <= state_ready;
+						tag_region[target] <= tag_region[target];
+						cache_data[target][current_tag][3] <= mem_rdata[127:96];
+						cache_data[target][current_tag][2] <= mem_rdata[95:64];
+						cache_data[target][current_tag][1] <= mem_rdata[63:32];
+						cache_data[target][current_tag][0] <= mem_rdata[31:0];
+						cache_tag [target][current_tag]	   <= {1'b0, proc_addr[29:5]};
+					end
                 end
             end
+			state_read_2: begin
+				if (mem_ready == 0)begin
+					state <= state_read_2;
+				end
+				else begin
+					state <= state_ready;
+					cache_data[nxt_addr[1:0]][tag_region[nxt_addr[1:0]]][3] <= mem_rdata[127:96];
+					cache_data[nxt_addr[1:0]][tag_region[nxt_addr[1:0]]][2] <= mem_rdata[95:64];
+					cache_data[nxt_addr[1:0]][tag_region[nxt_addr[1:0]]][1] <= mem_rdata[63:32];
+					cache_data[nxt_addr[1:0]][tag_region[nxt_addr[1:0]]][0] <= mem_rdata[31:0];
+					cache_tag [nxt_addr[1:0]][tag_region[nxt_addr[1:0]]]    <= {1'b0, nxt_addr[26:2]};
+				end
+			end
             default: begin //regular
-            	tag_region[target]<=current_tag;
-                state<=state_read;
+            	tag_region[target] <= current_tag;
+                state <= state_read;
             end
         endcase
     end
