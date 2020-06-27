@@ -261,6 +261,13 @@ module RISCV_Pipeline(
 		.out(imm_result_0)
 	);
 	// ----- IF stage ------------------//
+	wire stall;
+	wire jump;
+	wire flush;
+	wire [31:0] pc_br;
+
+	assign stall = ((pc_mux == 2'b01) || DCACHE_stall || ICACHE_stall);
+
 	IF ins_fetch(
 		.i_clk(clk),
 		.i_rst_n(rst_n),
@@ -270,14 +277,8 @@ module RISCV_Pipeline(
 		.i_b_req((pc_mux == 2'b10)),   					 // branch request									 
 		.o_jump(jump),     		 // taking o_pc_br
 		.o_miss(flush),    		 // miss prediction
-		.o_pc_br(pc_br),     	 // branch pc
+		.o_pc_br(pc_br)    	     // branch pc
 	);
-	wire stall;
-	wire jump;
-	wire flush;
-	wire pc_br;
-
-	assign stall = ((pc_mux == 2'b01)) || DCACHE_stall || ICACHE_stall);
 	//-----regsiter combinational------//
 	register_file register(
 		.Clk(clk),
@@ -957,6 +958,15 @@ output        o_jump;
 output        o_miss;
 output [31:0] o_pc_br;
 
+wire hit;                       // not missing
+wire branch;                    // beq || bneq
+wire jal;                       // jal operation
+wire pred;                      // prediction result
+wire [31:0] imm;                // immediate
+wire [31:0] pc_nt_w, pc_w;		// next state wire
+reg  [31:0] pc_nt_r;   			// pc not-taken
+reg  [31:0] pc_r;         		// previous pc
+
 comparator comp(
     .i_clk(i_clk),
     .i_rst_n(i_rst_n),
@@ -982,19 +992,11 @@ decoder dec(
     .o_jal(jal)
 );
 
-wire hit;                       // not missing
-wire branch;                    // beq || bneq
-wire jal;                       // jal operation
-wire pred;                      // prediction result
-wire [31:0] imm;                // immediate
-reg  [31:0] pc_nt_r, pc_nt_w;   // pc not-taken
-reg  [31:0] pc_r, pc_w;         // previous pc
-
-assign o_pc_br = (o_miss)  ? (pc_nt_r)                              // miss, stall or immediate
+assign o_pc_br = (o_miss)  ? (pc_nt_r) :                          	// miss, stall or immediate
                  (i_stall) ? (pc_r) : (i_pc + imm);
 
-assign o_miss  = ~(hit || i_stall)                                  // flush
-assign o_jump  = (branch || jal || o_miss);                         // address != pc + 4
+assign o_miss  = ~(hit || i_stall);                              	// flush
+assign o_jump  = ((branch && pred) || jal || o_miss);               // address != pc + 4
 assign pc_nt_w = (o_jump == 1'b1) ? (i_pc + 32'd4) : (i_pc + imm);  // pc not taken
 assign pc_w    = i_pc;                                              // current pc
 
@@ -1136,7 +1138,8 @@ module decoder(
     o_imm,  // immediate
 );
 
-input  i_ins;
+input  [31:0] i_ins;
+output o_jal;
 output o_br;
 output [31:0] o_imm;
 
@@ -1148,4 +1151,6 @@ assign beq   = ({in[7:6],in[2]} == 3'b010)? 1'b1:1'b0;
 assign bneq  = ({in[7:6],in[2]} == 3'b110)? 1'b1:1'b0;
 assign o_jal = (in[3:2]==2'b11)           ? 1'b1:1'b0;
 assign o_br  = (beq || bneq);
-assign o_imm = {{20{i_ins[31]}},i_ins[7],i_ins[30:25],i_ins[11:8],1'b0};
+assign o_imm = (beq || bneq) ? {{20{i_ins[31]}},i_ins[7],i_ins[30:25],i_ins[11:8],1'b0} : {{12{i_ins[31]}},i_ins[19:12],i_ins[20],i_ins[30:21],1'b0};
+
+endmodule
