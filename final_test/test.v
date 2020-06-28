@@ -334,12 +334,14 @@ module RISCV_Pipeline(
 	);
 	//-----Instruction Combinational---//
 	always @(*) begin
+		/*
 		case(Ins_mux)
 			2'b00: Ins_nxt={ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]};
 			2'b01: Ins_nxt=Ins;
 			2'b10: Ins_nxt=32'd0;
 			default: Ins_nxt=32'd0;
 		endcase
+		*/
 		PC_plus4={24'd0,(PC[7:0]+8'd4)};  //reduce adder area
 		Rd[0]=Ins[11:7];
 
@@ -347,22 +349,26 @@ module RISCV_Pipeline(
 			PC_nxt={24'd0,(rs1_0[7:0]+imm_result_0[7:0])};	//pre-calculate jalr ,reduce adder area origin:rs1_0+imm_result_0; 
 			PC_ID_nxt=32'hffffffff;
 			PC_add4_nxt=32'hffffffff;
+			Ins_nxt=32'd0;
 		end
 		else begin
 			PC_nxt = (jump == 1'b1) ? pc_br : PC_plus4;
 			if (flush == 1'b1) begin
 				PC_ID_nxt=32'hffffffff;
 				PC_add4_nxt=32'hffffffff;
+				Ins_nxt=32'd0;
 			end
 			else begin
 				if (stall) begin
 					PC_ID_nxt = PC_ID;
 					PC_add4_nxt = PC_add4[0];
+					Ins_nxt=Ins;
 				end
 
 				else begin
 					PC_ID_nxt=PC;
 					PC_add4_nxt=PC_plus4;
+					Ins_nxt={ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]};
 				end	
 			end
 		end
@@ -609,12 +615,12 @@ module Hazard_dection_Unit(rs1,rs2,equal,rd_Ex,reg_write_Ex,jal,jalr,beq,bneq,me
 		end
 		else if (jal) begin
 			pc_mux=2'b10; //branch or jump address-->pc
-			IF_mux=2'b10; //flush IF
+			IF_mux=2'b00; //flush IF
 			control_mux=0;
 		end
 		else if ((beq&equal)||(bneq&(~equal))) begin
 			pc_mux=2'b10; //branch or jump address-->pc
-			IF_mux=2'b10; //flush IF
+			IF_mux=2'b00; //flush IF
 			control_mux=0;
 		end
 		else begin
