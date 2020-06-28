@@ -971,9 +971,11 @@ wire branch;                    // beq || bneq
 wire jal;                       // jal operation
 wire pred;                      // prediction result
 wire [31:0] imm;                // immediate
-wire [31:0] pc_nt_w, pc_w;		// next state wire
+wire [31:0] pc_nt_w;			// next state wire
 reg  [31:0] pc_nt_r;   			// pc not-taken
-reg  [31:0] pc_r;         		// previous pc
+//wire [31:0] ins_w;
+//reg  [31:0] ins_r;         	// previous ins
+//wire [31:0] ins_sel;		// instruction selection
 
 comparator comp(
     .i_clk(i_clk),
@@ -981,6 +983,7 @@ comparator comp(
     .i_br(branch),
     .i_pred(pred),
     .i_req(i_b_req),
+	.i_stall(i_stall),
     .o_correct(hit)
 );
 
@@ -1001,22 +1004,23 @@ decoder dec(
 );
 
 assign o_pc_br = (o_miss)  ? (pc_nt_r) :                          	// miss, stall or immediate
-                 (i_stall) ? (pc_r) : (i_pc + imm);
+                 (i_stall) ? (i_pc) : (i_pc + imm);
 
 assign o_miss  = ~(hit || i_stall);                              	// flush
-assign o_jump  = ((branch && pred) || jal || o_miss);               // address != pc + 4
-assign pc_nt_w = (o_jump == 1'b1) ? (i_pc + 32'd4) : (i_pc + imm);  // pc not taken
-assign pc_w    = i_pc;                                              // current pc
+assign o_jump  = ((branch && pred) || jal || o_miss || i_stall);    // address != pc + 4
+assign pc_nt_w = (i_stall == 1'b1) ? pc_nt_r : 
+				 (o_jump == 1'b1)  ? (i_pc + 32'd4) : (i_pc + imm);  // pc not taken
+assign ins_w    = i_ins;                                              // current pc
 
 always@(posedge i_clk) begin
     if (~i_rst_n) begin
         pc_nt_r <= 32'b0; 
-        pc_r    <= 32'b0;
+        //ins_r   <= 32'b0;
     end
 
     else begin
         pc_nt_r <= pc_nt_w;
-        pc_r    <= pc_w;
+        //ins_r   <= ins_w;
     end
 end
 
@@ -1028,6 +1032,7 @@ module comparator(
     i_br,
     i_pred,
     i_req,
+	i_stall,
     o_correct
 );
 
@@ -1036,6 +1041,7 @@ input i_rst_n;
 input i_br;
 input i_pred;
 input i_req;
+input i_stall;
 output o_correct;
 
 reg pred_r, pred_w;
@@ -1049,7 +1055,14 @@ assign o_correct = correct;
 
 always@(*) begin
     pred_w = i_pred;
-    state_w = ((i_br == 1'b1) && (correct == 1'b1)) ? S_COMP : S_IDLE;
+    if (~i_stall) begin
+		state_w = (i_br == 1'b1) ? S_COMP : S_IDLE;
+	end
+
+	else begin
+		state_w = state_r;
+	end
+
     case(state_r)
         S_IDLE : correct = 1'b1;
         S_COMP : correct = (pred_r == i_req);
@@ -1087,6 +1100,7 @@ input miss;
 output pred;
 
 reg [1:0] state_r, state_w;
+reg branch_r, branch_w;
 
 parameter NB    = 2'd0;
 parameter TNB   = 2'd1;
@@ -1097,7 +1111,8 @@ assign pred = ((state_r == NB) || (state_r == TNB)) ? 1'b0 : 1'b1;
 
 always@(*) begin
     state_w = state_r;
-    if ((branch == 1'b1) && (stall == 1'b0)) begin
+	branch_w = (stall) ? branch_r : branch;
+    if ((branch_r == 1'b1) && (stall == 1'b0)) begin
         case(state_r)
             NB:begin
                 case(miss)
@@ -1130,20 +1145,22 @@ end
 always@(posedge clk) begin
     if (~rst_n) begin
         state_r <= NB;
+		branch_r <= 1'b0;
     end
 
     else begin
         state_r <= state_w;
+		branch_r <= branch_w;
     end
 end
 
 endmodule
 
 module decoder(
-    i_ins,  // instruction
-    o_br,   // branch or not
-    o_jal,  // jal operation
-    o_imm,  // immediate
+    i_ins,   // instruction
+    o_br,    // branch or not
+    o_jal,   // jal operation
+    o_imm,   // immediate
 );
 
 input  [31:0] i_ins;

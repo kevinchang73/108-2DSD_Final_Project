@@ -106,10 +106,10 @@ EF_F0_5F_F3 // 1_1110011010_1_11111111_00001_1101111   //0xD4// jal  0xFFF9A (to
 //    0xB4     //                  jalr x0  x2  0x000           // return BubbleSort
 //    0xB8     // Main           : addi x8  x0  0x168
 //    0xBC     //                  jal  x1  OutputTestPort
-//    0xC0     //                  addi x16 x0  Main
+//    0xC0     //                  addi x16 x0  Main		x1
 //    0xC4     //                  addi x17 x0  Main
 //    0xC8     //                  jalr x2  x16 FibonacciSeries
-//    0xCC     //                  jalr x2  x17 BubbleSort
+//    0xCC     //                  jalr x2  x17 BubbleSort	x2
 //    0xD0     //                  addi x8  x0  0xD5D
 //    0xD4     //                  jal  x1  OutputTestPort
 //    0xD8     //                  nop

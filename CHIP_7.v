@@ -57,7 +57,6 @@ wire [31:0] DCACHE_wdata;
 wire        DCACHE_stall;
 wire [31:0] DCACHE_rdata;
 
-
 //------------------------------
 	// Note that the overall design of your RISCV includes:
 	// 1. pipelined RISCV processor
@@ -150,6 +149,7 @@ module RISCV_Pipeline(
 	localparam Mem=2'd2;
 	localparam WB=2'd3;
 	integer i;
+	
 	//-----WB control---------//
 	reg RegWrite[0:3]; 
 	reg [1:0] DataToReg[0:3]; 
@@ -193,6 +193,9 @@ module RISCV_Pipeline(
 	//-----Forward Unit-----------------//
 	reg [1:0] FwA_Ex,FwB_Ex,FwA_ID,FwB_ID;
 
+	// testing
+	wire [7:0] PC_prototype;
+	assign PC_prototype = PC*4;
 
 	//-----cache D combinational--------//
 	always@(*) begin
