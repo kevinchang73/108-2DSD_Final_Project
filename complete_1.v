@@ -1,4 +1,3 @@
-// Top module of your design, you cannot modify this module!!
 module CHIP (	clk,
 				rst_n,
 //----------for slow_memD------------
@@ -260,24 +259,6 @@ module RISCV_Pipeline(
 		.in(Ins[31:0]),
 		.out(imm_result_0)
 	);
-	// ----- IF stage ------------------//
-	IF ins_fetch(
-		.i_clk(clk),
-		.i_rst_n(rst_n),
-		.i_pc(PC),       		 // program counter
-		.i_ins({ICACHE_rdata[7:0],ICACHE_rdata[15:8],ICACHE_rdata[23:16],ICACHE_rdata[31:24]}),      // instruction
-		.i_stall(stall),    						     // stall signal
-		.i_b_req((pc_mux == 2'b10)),   					 // branch request									 
-		.o_jump(jump),     		 // taking o_pc_br
-		.o_miss(flush),    		 // miss prediction
-		.o_pc_br(pc_br),     	 // branch pc
-	);
-	wire stall;
-	wire jump;
-	wire flush;
-	wire pc_br;
-
-	assign stall = ((pc_mux == 2'b01)) || DCACHE_stall || ICACHE_stall);
 	//-----regsiter combinational------//
 	register_file register(
 		.Clk(clk),
@@ -333,54 +314,28 @@ module RISCV_Pipeline(
 		endcase
 		PC_plus4={24'd0,(PC[7:0]+8'd4)};  //reduce adder area
 		Rd[0]=Ins[11:7];
-
-		if (pc_mux == 2'b11) begin
-			PC_nxt={24'd0,(rs1_0[7:0]+imm_result_0[7:0])};	//pre-calculate jalr ,reduce adder area origin:rs1_0+imm_result_0; 
-			PC_ID_nxt=32'hffffffff;
-			PC_add4_nxt=32'hffffffff;
-		end
-		else begin
-			PC_nxt = (jump == 1'b1) ? pc_br : PC_plus4;
-			if (flush == 1'b1) begin
-				PC_ID_nxt=32'hffffffff;
-				PC_add4_nxt=32'hffffffff;
-			end
-			else begin
-				if (stall) begin
-					PC_ID_nxt = PC_ID;
-					PC_add4_nxt = PC_add4[0];
-				end
-
-				else begin
-					PC_ID_nxt=PC;
-					PC_add4_nxt=PC_plus4;
-				end	
-			end
-		end
-		/*
 		case(pc_mux)
 			2'b00: begin //normal
-				PC_nxt = PC_plus4;
+				PC_nxt=PC_plus4;
 				PC_ID_nxt=PC;
 				PC_add4_nxt=PC_plus4;
 			end
 			2'b01: begin //stall (hold)
-				PC_nxt = PC_ID;
+				PC_nxt=PC_ID;
 				PC_ID_nxt=PC_ID;
 				PC_add4_nxt=PC_add4[0];
 			end
 			2'b10: begin //beq 
-				PC_nxt = (pred) ? pc_br : PC_plus4;	// reduce adder area origin:PC_ID+imm_result_0; 
+				PC_nxt={24'd0,(PC_ID[7:0]+imm_result_0[7:0])};// reduce adder area origin:PC_ID+imm_result_0; 
 				PC_ID_nxt=32'hffffffff;
 				PC_add4_nxt=32'hffffffff;
 			end
 			2'b11: begin //jalr
-				PC_nxt={24'd0,(rs1_0[7:0]+imm_result_0[7:0])};	//pre-calculate jalr ,reduce adder area origin:rs1_0+imm_result_0; 
+				PC_nxt={24'd0,(rs1_0[7:0]+imm_result_0[7:0])};       //pre-calculate jalr ,reduce adder area origin:rs1_0+imm_result_0; 
 				PC_ID_nxt=32'hffffffff;
 				PC_add4_nxt=32'hffffffff;
 			end
 		endcase
-		*/
 	end
 	//-----control combinational--//
 	Control_Unit Control(

@@ -1062,7 +1062,7 @@ assign o_correct = correct;
 always@(*) begin
     pred_w = i_pred;
     if (~i_stall) begin
-		state_w = (i_br == 1'b1) ? S_COMP : S_IDLE;
+		state_w = ((i_br == 1'b1) && ((correct || i_stall) == 1'b1)) ? S_COMP : S_IDLE;
 	end
 
 	else begin
